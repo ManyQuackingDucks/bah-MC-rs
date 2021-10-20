@@ -76,13 +76,13 @@ fn main() {
         std::process::exit(1);
     }));
     let stream = net::TcpStream::connect("127.0.0.1:6666").expect("Could not connect");
-    let readstream = io::BufReader::new(stream.try_clone().unwrap());
-    let f = File::open("config.json").unwrap();
-    thread::spawn(|| reciver(readstream, f));
 
     let writestream = io::BufWriter::new(stream.try_clone().unwrap());
 
     thread::spawn(|| checkserver(writestream));
+    let readstream = io::BufReader::new(stream.try_clone().unwrap());
+    let f = File::open("config.json").unwrap();
+    reciver(readstream, f);
     loop {
         thread::sleep(std::time::Duration::new(5, 0));
     }
