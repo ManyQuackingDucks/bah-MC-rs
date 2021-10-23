@@ -16,6 +16,7 @@ reqwest = {version = "0.11.6", features = ["blocking"]}
 rayon = "1.5.1"
 num_cpus = "1.13.0"
 snmalloc-rs = {version = "0.2.28", features = ["native-cpu"]}
+jni = "0.19.0"
 
 [profile.release]
 opt-level = 3
@@ -30,3 +31,6 @@ opt-level = 3
 codegen-units = 1
 debug = 0
 incremental = false
+
+[lib]
+crate_type = ["cdylib"]

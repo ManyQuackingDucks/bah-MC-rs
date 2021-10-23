@@ -1,8 +1,8 @@
 #![no_main]
-#![deny(warnings)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
-
+use jni::objects::{JClass, JString, JValue};
+use jni::JNIEnv;
 use lazy_static::lazy_static;
 use reqwest::blocking;
 use serde::Deserialize;
@@ -11,10 +11,10 @@ use serde_json::Value;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
-use std::io::{self, BufRead, Write};
-use std::sync::RwLock;
+use std::io::Write;
+use std::sync::{Mutex, RwLock};
 use std::thread::{self};
-use std::{net, vec};
+use std::vec;
 use std::fs::OpenOptions;
 
 const CONFIG_PATH: &str = "config.json";
@@ -23,13 +23,6 @@ const URL_BASE: &str = "https://api.hypixel.net/skyblock/auctions";
 #[global_allocator]
 static ALLOC: snmalloc_rs::SnMalloc = snmalloc_rs::SnMalloc;
 
-#[derive(Deserialize)]
-struct Command {
-    command: String,
-    item: String,
-    price: String,
-    rarity: String,
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Item {
@@ -48,16 +41,6 @@ pub struct ValidItem {
     price: i64,
 }
 
-impl Item {
-    const fn new(item: String, price: i64, rarity: String) -> Self {
-        Self {
-            item,
-            price,
-            rarity,
-        }
-    }
-}
-
 lazy_static! {
     static ref ITEMS: RwLock<Vec<Item>> = RwLock::new({
         let mut m: Vec<Item> = vec![];
@@ -71,80 +54,77 @@ lazy_static! {
         }
         m
     });
+    static ref CONFIG: Mutex<File> = Mutex::new(OpenOptions::new().read(false).write(true).open(CONFIG_PATH).unwrap());
 }
+
+
+
+#[no_mangle]
 /// # Panics
 ///
 /// Will panic if can not connect or invalid config.json
-#[no_mangle]
-pub extern "C" fn main() -> isize{
-    //Exit if ANY thread panics
+pub extern "system" fn Java_com_duck_bahmod_Server_rs_1start(env: JNIEnv, _: JClass){
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         // invoke the default handler and exit the process
         orig_hook(panic_info);
         std::process::exit(1);
     }));
-    let stream = net::TcpStream::connect("127.0.0.1:6666").expect("Could not connect");
-
-    let writestream = io::BufWriter::new(stream.try_clone().unwrap());
-    thread::spawn(|| checkserver(writestream));
-    let readstream = io::BufReader::new(stream.try_clone().unwrap());
-    reciver(readstream);
-    0
+    let class = env.find_class("com/duck/bahmod/Server").expect("Could not find server class");
+    checkserver(env, class);
 }
 
-fn reciver(mut readstream: io::BufReader<net::TcpStream>) {
-    let mut f = OpenOptions::new()
-        .read(false)
-        .write(true)
-        .open(CONFIG_PATH)
-        .unwrap();
-    loop {
-        let mut buffer = String::new();
-        readstream
-            .read_line(&mut buffer)
-            .expect("Could not read from the data stream");
-        let mut chars = buffer.chars();
-        chars.next_back();
-        chars.next_back(); //remove /r/n
-        let command: Command = serde_json::from_str(&chars.as_str().to_owned()).unwrap();
-        let mut lock = ITEMS.write().unwrap();
-        match command.command.as_str() {
-            "add" => {
-                println!("adding");
-                let item = Item::new(
-                    command.item.replace('_', " "),
-                    command.price.parse::<i64>().unwrap(),
-                    command.rarity.to_ascii_uppercase(),
-                );
-                (*lock).push(item.clone());
-                f.write_all(
-                    &serde_json::to_vec_pretty(&Items {
-                        items: (*lock).clone(),
-                    })
-                    .unwrap(),
-                ).unwrap();
-                println!("{:?}", item);
-            }
-            "del" => {
-                println!("deleting");
-                let item_name = command.item.replace('_', " ");
-                (*lock).retain(|x| *x.item != item_name);
-                f.write_all(
-                    &serde_json::to_vec_pretty(&Items {
-                        items: (*lock).clone(),
-                    })
-                    .unwrap(),
-                ).unwrap();
-                println!("{}", command.item);
-            }
-            _ => panic!("Invalid Command"), // Can not trigger unless I made a mistake in the java mod or I added a command in the java mod but not in here
-        }
-        drop(lock);
-    }
+fn send_chat(env: JNIEnv, class: JClass, msg: String){
+    let output = env.new_string(msg).expect("Couldn't create java string!");
+    let result = env.call_static_method(class, "MessageChat", "(Ljava/lang/String;)V", &[JValue::Object(output.into())]);
+    result.map_err(|e| e.to_string()).unwrap();
 }
 
-fn checkserver(mut write_stream: io::BufWriter<net::TcpStream>) {
+#[no_mangle]
+/// # Panics
+///
+/// Will panic if can not connect or invalid config.json
+pub extern "system" fn Java_com_duck_bahmod_Server_add(env: JNIEnv, _:JClass, input:JString){
+    let input: String = env.get_string(input).expect("Couldn't get java string!").into();
+    let mut item: Item = serde_json::from_str(&input).unwrap();
+    let mut lock = ITEMS.write().unwrap();
+    println!("adding");
+    item.item = item.item.replace('_', " ");
+    (*lock).push(item.clone());
+    let mut conf_lock = CONFIG.lock().unwrap();
+    (*conf_lock).write_all(
+        &serde_json::to_vec_pretty(&Items {
+            items: (*lock).clone(),
+        })
+        .unwrap(),
+    ).unwrap();
+    println!("{:?}", item);
+
+}
+
+#[no_mangle]
+/// # Panics
+///
+/// Will panic if can not connect or invalid config.json
+pub extern "system" fn Java_com_duck_bahmJava_com_duck_bahmod_Server_del(env: JNIEnv, _:JClass, input:JString){
+    let input: String = env.get_string(input).expect("Couldn't get java string!").into();
+    let item: Item = serde_json::from_str(&input).unwrap();
+    let mut lock = ITEMS.write().unwrap();
+    println!("deleting");
+    let item_name = item.item.replace('_', " ");
+    (*lock).retain(|x| *x.item != item_name);
+    let mut conf_lock = CONFIG.lock().unwrap();
+    (*conf_lock).write_all(
+        &serde_json::to_vec_pretty(&Items {
+            items: (*lock).clone(),
+        })
+        .unwrap(),
+    ).unwrap();
+    println!("{}", item.item);
+}
+
+
+fn checkserver(env: JNIEnv, class: JClass) {
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(num_cpus::get())
         .build()
@@ -205,10 +185,7 @@ fn checkserver(mut write_stream: io::BufWriter<net::TcpStream>) {
             send_string.push('\n');
             println!("{}", send_string);
             if send_string != past_string {
-                write_stream
-                    .write_all(send_string.as_bytes())
-                    .expect("Could not write to stream");
-                write_stream.flush().unwrap();
+                send_chat(env, class, send_string.clone());
             }
             past_string = send_string;
         }
