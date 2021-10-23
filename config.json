@@ -1,6 +1,19 @@
 {
-    "items": [
-        {"item": "Necron's Handle", "price": 700000000, "rarity": "EPIC"},
-        {"item": "Aspect of the End", "price": 700000000, "rarity": "RARE"}
-    ]
+  "items": [
+    {
+      "item": "Necron's Handle",
+      "price": 700000000,
+      "rarity": "EPIC"
+    },
+    {
+      "item": "Aspect of the End",
+      "price": 700000000,
+      "rarity": "RARE"
+    },
+    {
+      "item": "Livid Dagger",
+      "price": 700000000,
+      "rarity": "LEGENDARY"
+    }
+  ]
 }

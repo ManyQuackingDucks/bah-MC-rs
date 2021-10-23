@@ -1,9 +1,13 @@
-#![deny(clippy::all)]
-use lazy_static::lazy_static;
+#![no_main]
+#![deny(warnings)]
+#![warn(clippy::pedantic)]
+#![warn(clippy::nursery)]
 
+use lazy_static::lazy_static;
 use reqwest::blocking;
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json::Value;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::Read;
@@ -11,7 +15,9 @@ use std::io::{self, BufRead, Write};
 use std::sync::RwLock;
 use std::thread::{self};
 use std::{net, vec};
+use std::fs::OpenOptions;
 
+const CONFIG_PATH: &str = "config.json";
 const URL_BASE: &str = "https://api.hypixel.net/skyblock/auctions";
 
 #[global_allocator]
@@ -43,7 +49,7 @@ pub struct ValidItem {
 }
 
 impl Item {
-    fn new(item: String, price: i64, rarity: String) -> Self {
+    const fn new(item: String, price: i64, rarity: String) -> Self {
         Self {
             item,
             price,
@@ -56,7 +62,7 @@ lazy_static! {
     static ref ITEMS: RwLock<Vec<Item>> = RwLock::new({
         let mut m: Vec<Item> = vec![];
         let mut buf = String::new();
-        let mut f = File::open("config.json").unwrap();
+        let mut f = File::open(CONFIG_PATH).unwrap();
         f.read_to_string(&mut buf).unwrap();
         drop(f);
         let items: Items = serde_json::from_str(&buf).unwrap();
@@ -66,8 +72,11 @@ lazy_static! {
         m
     });
 }
-
-fn main() {
+/// # Panics
+///
+/// Will panic if can not connect or invalid config.json
+#[no_mangle]
+pub extern "C" fn main() -> isize{
     //Exit if ANY thread panics
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
@@ -78,17 +87,18 @@ fn main() {
     let stream = net::TcpStream::connect("127.0.0.1:6666").expect("Could not connect");
 
     let writestream = io::BufWriter::new(stream.try_clone().unwrap());
-
     thread::spawn(|| checkserver(writestream));
     let readstream = io::BufReader::new(stream.try_clone().unwrap());
-    let f = File::open("config.json").unwrap();
-    reciver(readstream, f);
-    loop {
-        thread::sleep(std::time::Duration::new(5, 0));
-    }
+    reciver(readstream);
+    0
 }
 
-fn reciver(mut readstream: io::BufReader<net::TcpStream>, mut f: File) {
+fn reciver(mut readstream: io::BufReader<net::TcpStream>) {
+    let mut f = OpenOptions::new()
+        .read(false)
+        .write(true)
+        .open(CONFIG_PATH)
+        .unwrap();
     loop {
         let mut buffer = String::new();
         readstream
@@ -109,7 +119,7 @@ fn reciver(mut readstream: io::BufReader<net::TcpStream>, mut f: File) {
                 );
                 (*lock).push(item.clone());
                 f.write_all(
-                    &serde_json::to_vec(&Items {
+                    &serde_json::to_vec_pretty(&Items {
                         items: (*lock).clone(),
                     })
                     .unwrap(),
@@ -121,7 +131,7 @@ fn reciver(mut readstream: io::BufReader<net::TcpStream>, mut f: File) {
                 let item_name = command.item.replace('_', " ");
                 (*lock).retain(|x| *x.item != item_name);
                 f.write_all(
-                    &serde_json::to_vec(&Items {
+                    &serde_json::to_vec_pretty(&Items {
                         items: (*lock).clone(),
                     })
                     .unwrap(),
@@ -140,7 +150,7 @@ fn checkserver(mut write_stream: io::BufWriter<net::TcpStream>) {
         .build()
         .unwrap(); //Limit workers so it doesnt lag as bad
     for x in 1..num_cpus::get() {
-        pool.spawn(move || println!("Initializing Worker {}", x))
+        pool.spawn(move || println!("Initializing Worker {}", x));
     }
     let mut past_string = String::new();
     loop {
@@ -166,27 +176,8 @@ fn checkserver(mut write_stream: io::BufWriter<net::TcpStream>) {
             });
             threads.push(());
         }
-        let read_lock = ITEMS.read().unwrap();
-        let mut valid_items = vec![];
-        for auction_item in first_page["auctions"].as_array().unwrap() {
-            if let Some(auc_item) = auction_item.as_object() { //Sometimes returns None ?? This is defenitly a bug with simd_json because the line ablove is perfectly fine
-                if auc_item.contains_key("bin") && !auc_item["claimed"].as_bool().unwrap() {
-                    for i in &*read_lock {
-                        if auc_item["item_name"].as_str().unwrap().contains(&i.item)
-                            && auc_item["starting_bid"].as_i64().unwrap() <= i.price
-                            && i.rarity == auc_item["tier"].as_str().unwrap()
-                        {
-                            valid_items.push(ValidItem {
-                                item: i.item.clone(),
-                                price: auc_item["starting_bid"].as_i64().unwrap(),
-                            });
-                        }
-                    }
-                }
-            }
-        }
         println!("Done with sort on main thread");
-        drop(read_lock); //release read_lock as soon as posible
+        let mut valid_items = sortpage(&first_page);
         drop(tx); //Will cause next line to block
         for thread in rx.into_iter().flatten() {
             for item in thread {
@@ -224,20 +215,11 @@ fn checkserver(mut write_stream: io::BufWriter<net::TcpStream>) {
     }
 }
 
-fn pagethread(pagenum: usize) -> Option<Vec<ValidItem>> {
+fn sortpage(page: &Value) -> Vec<ValidItem>{
     let read_lock = ITEMS.read().unwrap();
-    let mut res = if let Ok(n) = blocking::get(format!("{}?page={}", URL_BASE, pagenum)) {
-        n
-    } else {
-        thread::sleep(std::time::Duration::new(0, 500_000));
-        blocking::get(format!("{}?page={}", URL_BASE, pagenum)).unwrap()
-    }
-    .text()
-    .unwrap();
-    let page: serde_json::Value = simd_json::from_str(&mut res).unwrap();
     let mut valid_items = vec![];
     for auction_item in page["auctions"].as_array().unwrap() {
-        if let Some(auc_item) = auction_item.as_object() {
+        if let Some(auc_item) = auction_item.as_object() { //Sometimes returns None ?? This is defenitly a bug with simd_json because the line ablove is perfectly fine
             if auc_item.contains_key("bin") && !auc_item["claimed"].as_bool().unwrap() {
                 for i in &*read_lock {
                     if auc_item["item_name"].as_str().unwrap().contains(&i.item)
@@ -253,6 +235,20 @@ fn pagethread(pagenum: usize) -> Option<Vec<ValidItem>> {
             }
         }
     }
+    valid_items
+}
+
+fn pagethread(pagenum: usize) -> Option<Vec<ValidItem>> {
+    let mut res = if let Ok(n) = blocking::get(format!("{}?page={}", URL_BASE, pagenum)) {
+        n
+    } else {
+        thread::sleep(std::time::Duration::new(0, 500_000));
+        blocking::get(format!("{}?page={}", URL_BASE, pagenum)).unwrap()
+    }
+    .text()
+    .unwrap();
+    let page: serde_json::Value = simd_json::from_str(&mut res).unwrap();
+    let valid_items = sortpage(&page);
     if valid_items.is_empty() {
         return None;
     }

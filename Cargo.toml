@@ -1,3 +1,4 @@
+cargo-features = ["strip"]
 [package]
 name = "forge_mod"
 version = "0.1.0"
@@ -22,6 +23,8 @@ lto = "fat"
 panic = "abort"
 codegen-units = 1
 debug = 0
+strip = "symbols"
+
 [profile.release.package."*"]
 opt-level = 3
 codegen-units = 1
