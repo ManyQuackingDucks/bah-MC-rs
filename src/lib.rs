@@ -84,7 +84,7 @@ fn send_chat(env: JNIEnv, class: JClass, msg: String){
 /// # Panics
 ///
 /// Will panic if can not connect or invalid config.json
-pub extern "system" fn Java_com_duck_bahmod_Server_add(env: JNIEnv, _:JClass, input:JString){
+pub extern "system" fn Java_com_duck_bahmod_Server_rs_1add(env: JNIEnv, _:JClass, input:JString){
     let input: String = env.get_string(input).expect("Couldn't get java string!").into();
     let mut item: Item = serde_json::from_str(&input).unwrap();
     let mut lock = ITEMS.write().unwrap();
@@ -106,7 +106,7 @@ pub extern "system" fn Java_com_duck_bahmod_Server_add(env: JNIEnv, _:JClass, in
 /// # Panics
 ///
 /// Will panic if can not connect or invalid config.json
-pub extern "system" fn Java_com_duck_bahmJava_com_duck_bahmod_Server_del(env: JNIEnv, _:JClass, input:JString){
+pub extern "system" fn Java_com_duck_bahmod_Server_rs_1del(env: JNIEnv, _:JClass, input:JString){
     let input: String = env.get_string(input).expect("Couldn't get java string!").into();
     let item: Item = serde_json::from_str(&input).unwrap();
     let mut lock = ITEMS.write().unwrap();
