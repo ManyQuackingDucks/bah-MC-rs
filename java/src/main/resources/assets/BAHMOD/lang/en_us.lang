@@ -1,0 +1,2 @@
+command.bahadd.usage=/bahadd <ITEM> <PRICE> <RARITY>
+command.bahdel.usage=/bahdel <ITEM>

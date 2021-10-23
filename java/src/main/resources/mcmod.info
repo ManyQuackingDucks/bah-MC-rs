@@ -1,0 +1,16 @@
+[
+{
+  "modid": "bahmod",
+  "name": "Bot's Ah mod",
+  "description": "No need for a description",
+  "version": "${version}",
+  "mcversion": "${mcversion}",
+  "url": "",
+  "updateUrl": "",
+  "authorList": ["bot1111"],
+  "credits": "",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}
+]
