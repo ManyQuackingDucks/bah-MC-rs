@@ -1,1 +1,24 @@
 /target
+
+# eclipse
+/java/bin
+/java/*.launch
+/java/.settings
+/java/.metadata
+/java/.classpath
+/java/.project
+
+# idea
+/java/out
+/java/*.ipr
+/java/*.iws
+/java/*.iml
+/java/.idea
+
+# gradle
+/java/build
+/java/.gradle
+
+# other
+/java/eclipse
+/java/run
