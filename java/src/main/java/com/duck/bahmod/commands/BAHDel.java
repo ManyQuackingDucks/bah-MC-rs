@@ -12,7 +12,7 @@ public class BAHDel extends CommandBase {
     @Override
     public void processCommand(ICommandSender sender, String[] params) {
         try {
-            Server.del("{\"item\": \"" + params[0] + "\", \"price\": \" \", \"rarity\": \" \"}");
+            Server.sendClient("{\"command\": \"del\",\"item\": \"" + params[0] + "\", \"price\": \" \", \"rarity\": \" \"}");
             MessageChat("Item Removed");
         } catch(ArrayIndexOutOfBoundsException e){
             MessageChat("§4 Not enough arguments");

@@ -2,7 +2,6 @@
 #![deny(warnings)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
-
 use lazy_static::lazy_static;
 use reqwest::blocking;
 use serde::Deserialize;
@@ -10,12 +9,12 @@ use serde::Serialize;
 use serde_json::Value;
 use std::convert::TryInto;
 use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::Read;
 use std::io::{self, BufRead, Write};
 use std::sync::RwLock;
 use std::thread::{self};
 use std::{net, vec};
-use std::fs::OpenOptions;
 
 const CONFIG_PATH: &str = "config.json";
 const URL_BASE: &str = "https://api.hypixel.net/skyblock/auctions";
@@ -76,7 +75,7 @@ lazy_static! {
 ///
 /// Will panic if can not connect or invalid config.json
 #[no_mangle]
-pub extern "C" fn main() -> isize{
+pub extern "C" fn main() -> isize {
     //Exit if ANY thread panics
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
@@ -85,8 +84,7 @@ pub extern "C" fn main() -> isize{
         std::process::exit(1);
     }));
     let stream = net::TcpStream::connect("127.0.0.1:6666").expect("Could not connect");
-
-    let writestream = io::BufWriter::new(stream.try_clone().unwrap());
+    let writestream = stream.try_clone().unwrap();
     thread::spawn(|| checkserver(writestream));
     let readstream = io::BufReader::new(stream.try_clone().unwrap());
     reciver(readstream);
@@ -123,7 +121,8 @@ fn reciver(mut readstream: io::BufReader<net::TcpStream>) {
                         items: (*lock).clone(),
                     })
                     .unwrap(),
-                ).unwrap();
+                )
+                .unwrap();
                 println!("{:?}", item);
             }
             "del" => {
@@ -135,7 +134,8 @@ fn reciver(mut readstream: io::BufReader<net::TcpStream>) {
                         items: (*lock).clone(),
                     })
                     .unwrap(),
-                ).unwrap();
+                )
+                .unwrap();
                 println!("{}", command.item);
             }
             _ => panic!("Invalid Command"), // Can not trigger unless I made a mistake in the java mod or I added a command in the java mod but not in here
@@ -144,7 +144,7 @@ fn reciver(mut readstream: io::BufReader<net::TcpStream>) {
     }
 }
 
-fn checkserver(mut write_stream: io::BufWriter<net::TcpStream>) {
+fn checkserver(mut write_stream: net::TcpStream) {
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(num_cpus::get())
         .build()
@@ -152,13 +152,14 @@ fn checkserver(mut write_stream: io::BufWriter<net::TcpStream>) {
     for x in 1..num_cpus::get() {
         pool.spawn(move || println!("Initializing Worker {}", x));
     }
+    let client = blocking::Client::new();
     let mut past_string = String::new();
     loop {
-        let mut res = if let Ok(n) = blocking::get(URL_BASE) {
+        let mut res = if let Ok(n) = client.get(URL_BASE).send() {
             n
         } else {
-            thread::sleep(std::time::Duration::new(0, 500_000));
-            blocking::get(URL_BASE).unwrap() //Connections may reset so wait 500 ms
+            thread::sleep(std::time::Duration::new(0, 500_000)); //Connections may reset so wait 500 ms
+            client.get(URL_BASE).send().unwrap()
         }
         .text()
         .unwrap();
@@ -170,32 +171,30 @@ fn checkserver(mut write_stream: io::BufWriter<net::TcpStream>) {
         let (tx, rx) = std::sync::mpsc::channel();
         for x in 1..total_pages {
             let tx = tx.clone();
+            let client = client.clone();
             pool.spawn(move || {
-                tx.send(pagethread(x.try_into().unwrap()))
-                    .expect("could not send");
+                tx.send(pagethread(x.try_into().unwrap(), &client))
+                    .expect("Could not send valid items back");
             });
             threads.push(());
         }
         println!("Done with sort on main thread");
         let mut valid_items = sortpage(&first_page);
         drop(tx); //Will cause next line to block
-        for thread in rx.into_iter().flatten() {
-            for item in thread {
-                valid_items.push(item);
-            }
+        for mut thread in rx.into_iter().flatten() {
+            valid_items.append(&mut thread);
         }
         let mut sorted_items = vec![];
         while !valid_items.is_empty() {
             let mut simular = valid_items.clone();
             simular.retain(|x| x.item == valid_items[0].item);
             valid_items.retain(|x| x.item != simular[0].item);
-            let lowest = simular.iter().min().unwrap();
-            sorted_items.push(lowest.clone());
+            sorted_items.push(simular.iter().min().unwrap().clone());
         }
         if !sorted_items.is_empty() {
-            let mut send_string = "Found item\\s: ".to_string();
+            let mut send_string = "Found item: ".to_string();
             for item in sorted_items {
-                send_string.push_str(&format!("{} for {}, ", item.item, item.price));
+                send_string.push_str(&(item.item + " for " + &item.price.to_string() + ", "));
             }
             let mut chars = send_string.chars();
             chars.next_back();
@@ -215,11 +214,12 @@ fn checkserver(mut write_stream: io::BufWriter<net::TcpStream>) {
     }
 }
 
-fn sortpage(page: &Value) -> Vec<ValidItem>{
+fn sortpage(page: &Value) -> Vec<ValidItem> {
     let read_lock = ITEMS.read().unwrap();
     let mut valid_items = vec![];
     for auction_item in page["auctions"].as_array().unwrap() {
-        if let Some(auc_item) = auction_item.as_object() { //Sometimes returns None ?? This is defenitly a bug with simd_json because the line ablove is perfectly fine
+        if let Some(auc_item) = auction_item.as_object() {
+            //Sometimes returns None ?? This is defenitly a bug with simd_json because the line ablove is perfectly fine
             if auc_item.contains_key("bin") && !auc_item["claimed"].as_bool().unwrap() {
                 for i in &*read_lock {
                     if auc_item["item_name"].as_str().unwrap().contains(&i.item)
@@ -238,12 +238,18 @@ fn sortpage(page: &Value) -> Vec<ValidItem>{
     valid_items
 }
 
-fn pagethread(pagenum: usize) -> Option<Vec<ValidItem>> {
-    let mut res = if let Ok(n) = blocking::get(format!("{}?page={}", URL_BASE, pagenum)) {
+fn pagethread(pagenum: usize, client: &blocking::Client) -> Option<Vec<ValidItem>> {
+    let mut res = if let Ok(n) = client
+        .get(URL_BASE.to_string() + "?page=" + &pagenum.to_string())
+        .send()
+    {
         n
     } else {
         thread::sleep(std::time::Duration::new(0, 500_000));
-        blocking::get(format!("{}?page={}", URL_BASE, pagenum)).unwrap()
+        client
+            .get(URL_BASE.to_string() + "?page=" + &pagenum.to_string())
+            .send()
+            .unwrap()
     }
     .text()
     .unwrap();

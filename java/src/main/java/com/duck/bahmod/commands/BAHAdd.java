@@ -16,7 +16,7 @@ public class BAHAdd extends CommandBase {
             } catch (ArrayIndexOutOfBoundsException e) {
                 params[2] = "";
             }
-            Server.add("{\"item\": \"" + params[0] + "\", \"price\": \"" + params[1] + "\", \"rarity\": \"" + params[2] + "\"}"); // Command:Item Name:Price:Rarity
+            Server.sendClient("{\"command\": \"add\", \"item\": \"" + params[0] + "\", \"price\": \"" + params[1] + "\", \"rarity\": \"" + params[2] + "\"}"); // Command:Item Name:Price:Rarity
             MessageChat("Item Added");
         } catch(ArrayIndexOutOfBoundsException e){
             MessageChat("§4 Not enough arguments");

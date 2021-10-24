@@ -1,6 +1,6 @@
 package com.duck.bahmod;
 
-//import static com.duck.bahmod.BAHMod.MessageChat;
+import static com.duck.bahmod.BAHMod.MessageChat;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -25,12 +25,12 @@ public class Server implements Runnable{
         in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
         String inputLine;
         while ((inputLine = in.readLine()) != null) {
-            //MessageChat(inputLine);
+            MessageChat(inputLine);
         }
         stop();
     }
     //WARNING MUST BE VALID JSON THE JSON PARSER CAN PARSE, CREATES A HARD TO DIAGNOSE ERROR
-    public static void sendMessage(String command) {
+    public static void sendClient(String command) {
         //debug
         System.out.println(command);
         out.println(command);
