@@ -2,6 +2,7 @@
 #![deny(warnings)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
+///!Sometimes serde_json is used instead of simd_json this is because serde_json is faster than simd_json at deserializing small amounts of json.
 use lazy_static::lazy_static;
 use reqwest::blocking;
 use serde::Deserialize;
@@ -79,7 +80,6 @@ pub extern "C" fn main() -> isize {
     //Exit if ANY thread panics
     let orig_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
-        // invoke the default handler and exit the process
         orig_hook(panic_info);
         std::process::exit(1);
     }));
@@ -150,7 +150,9 @@ fn checkserver(mut write_stream: net::TcpStream) {
         .build()
         .unwrap(); //Limit workers so it doesnt lag as bad
     for x in 1..num_cpus::get() {
-        pool.spawn(move || println!("Initializing Worker {}", x));
+        //Lag occurs when workers start up
+        //It is more convient for lag to happen when a user opens the program then later on
+        pool.spawn(move || println!("Initializing Worker {}", x)); 
     }
     let client = blocking::Client::new();
     let mut past_string = String::new();
@@ -219,7 +221,6 @@ fn sortpage(page: &Value) -> Vec<ValidItem> {
     let mut valid_items = vec![];
     for auction_item in page["auctions"].as_array().unwrap() {
         if let Some(auc_item) = auction_item.as_object() {
-            //Sometimes returns None ?? This is defenitly a bug with simd_json because the line ablove is perfectly fine
             if auc_item.contains_key("bin") && !auc_item["claimed"].as_bool().unwrap() {
                 for i in &*read_lock {
                     if auc_item["item_name"].as_str().unwrap().contains(&i.item)
